@@ -252,14 +252,40 @@ contract Pool is IPool {
         require(success && data.length >= 32);
         return abi.decode(data, (uint256));
     }
-
+// LP“加仓/提供流动性”的入口
+// 让一个 LP 往 Pool 里添加流动性，并检查他把应该交的 token0、token1 是否真的交进来了
+// 用户
+//  │
+//  │ mint()
+//  ▼
+// Pool
+//  │
+//  ├─ ① _modifyPosition() 
+//  │     ↓
+//  │   算：需要多少 token0 / token1
+//  │
+//  ├─ ② 记录转账前余额
+//  │
+//  ├─ ③ mintCallback()
+//  │     ↓
+//  │   用户把 token0 / token1 转进 Pool
+//  │
+//  ├─ ④ 检查余额
+//  │     ↓
+//  │   确认钱真的进来了
+//  │
+//  └─ ⑤ emit Mint
+//        ↓
+//      记录事件
+//  mint 铸造  
     function mint(
-        address recipient,
-        uint128 amount,
-        bytes calldata data
+        address recipient,   // 谁获得这份 LP 流动性
+        uint128 amount,       // 要增加多少流动性
+        bytes calldata data     // 回调时需要传给调用方的额外数据
     ) external override returns (uint256 amount0, uint256 amount1) {
+         // 流动性必须大于 0，不能添加 0 流动性
         require(amount > 0, "Mint amount must be greater than 0");
-        // 基于 amount 计算出当前需要多少 amount0 和 amount1
+        // 基于 amount 计算出当前需要多少 amount0 和 amount1 //  这次改仓，要动多少 token0
         (int256 amount0Int, int256 amount1Int) = _modifyPosition(
             ModifyPositionParams({
                 owner: recipient,
@@ -268,14 +294,18 @@ contract Pool is IPool {
         );
         amount0 = uint256(amount0Int);
         amount1 = uint256(amount1Int);
-
+        // 记录转账前 Pool 里有多少 token0
         uint256 balance0Before;
         uint256 balance1Before;
+        // balance0  查“这个 Pool 这个智能合约地址本身现在有多少 token0” 
         if (amount0 > 0) balance0Before = balance0();
         if (amount1 > 0) balance1Before = balance1();
-        // 回调 mintCallback
+        // 回调 mintCallback   //Pool 告诉调用 mint() 的人：你把需要的 token0、token1 转给我。
         IMintCallback(msg.sender).mintCallback(amount0, amount1, data);
-
+        // 检查用户刚才有没有把应该支付的 token0、token1 真的转进 Pool。
+        // 举例： 转账前 Pool 有 100 token0
+        //本次应该支付 20 token0      
+        //转账后 Pool 至少应该有 120 token0
         if (amount0 > 0)
             require(balance0Before.add(amount0) <= balance0(), "M0");
         if (amount1 > 0)
