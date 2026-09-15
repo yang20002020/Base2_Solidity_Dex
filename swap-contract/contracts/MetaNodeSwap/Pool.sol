@@ -49,7 +49,7 @@ contract Pool is IPool {
 
     // @inheritdoc IPool   创建这个 Pool 的 Factory 地址
     address public immutable override factory;
-    // @inheritdoc IPool    交易对中的 Token0
+    // @inheritdoc IPool    定义一个名叫 token0 的地址变量，它记录 Pool 的 token0 合约地址
     address public immutable override token0;
     //  @inheritdoc IPool   交易对中的 Token1
     address public immutable override token1;
@@ -226,15 +226,19 @@ contract Pool is IPool {
             params.liquidityDelta
         );
     }
-
-    /// @dev Get the pool's balance of token0
+                                                 
+    /// @dev Get the pool's balance of token0  查“这个 Pool 这个智能合约地址本身现在有多少 token0”
     /// @dev This function is gas optimized to avoid a redundant extcodesize check in addition to the returndatasize
     /// check
     function balance0() private view returns (uint256) {
+        // token0 是 token0 这个 合约的地址； token0.staticcall 调用另一个合约的函数，但是禁止修改状态
         (bool success, bytes memory data) = token0.staticcall(
+            // IERC20.balanceOf 把这个地址当成 ERC20 合约使用
+            // 这句是把函数调用的数据“打包成一串二进制数据”，然后交给 staticcall 去调用
             abi.encodeWithSelector(IERC20.balanceOf.selector, address(this))
         );
         require(success && data.length >= 32);
+        // 把合约返回的一串原始二进制数据 data，翻译成我们想要的 uint256 数字
         return abi.decode(data, (uint256));
     }
 
