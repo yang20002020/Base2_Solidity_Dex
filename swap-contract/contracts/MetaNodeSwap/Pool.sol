@@ -155,6 +155,7 @@ contract Pool is IPool {
     }
 
    // 修改 LP 仓位的总入口：先算这次需要多少 token，再结算旧手续费，最后更新流动性。
+   //token0、 token1: 这次修改 LP 仓位，需要动多少 token0、多少 token1
     function _modifyPosition(
         ModifyPositionParams memory params
     ) private returns (int256 amount0, int256 amount1) {
@@ -181,6 +182,7 @@ contract Pool is IPool {
         Position storage position = positions[params.owner];
 
         // 提取手续费，计算从上一次提取到当前的手续费
+        //tokensOwed0 是   从这个 LP 上一次记录手续费的位置，到这一次调用 _modifyPosition() 的这一刻
         //3. 计算这段时间新产生的 token0 手续费 
         // 当前手续费累计值 - 上次记录的值
         // 再 × LP 的流动性 = 这次新增的手续费
@@ -202,13 +204,14 @@ contract Pool is IPool {
 
         // 更新提取手续费的记录，同步到当前最新的 feeGrowthGlobal0X128，代表都提取完了
         // 更新手续费“里程表” // 记录已经结算到当前这个位置
-        position.feeGrowthInside0LastX128 = feeGrowthGlobal0X128;
-        position.feeGrowthInside1LastX128 = feeGrowthGlobal1X128;
+        //feeGrowthInside0LastX128: 这个 Position 上一次结算手续费时，Token0 的手续费累计值是多少
+        position.feeGrowthInside0LastX128 = feeGrowthGlobal0X128;  // feeGrowthGlobal0X128 全池 token0 手续费增长“里程表”
+        position.feeGrowthInside1LastX128 = feeGrowthGlobal1X128;  // feeGrowthGlobal1X128 全池 token1 手续费增长“里程表”
         // 把可以提取的手续费记录到 tokensOwed0 和 tokensOwed1 中
         // LP 可以通过 collect 来最终提取到用户自己账户上
         // 把刚刚算出来的手续费记到账本里 
         // 注意：这里只是记账，还没有真正转 token
-         // 真正把钱转给 LP，要等 collect()
+       // 真正把钱转给 LP，要等 collect()    //tokensOwed0 → 欠 LP 的 Token0
         if (tokensOwed0 > 0 || tokensOwed1 > 0) {
             position.tokensOwed0 += tokensOwed0;
             position.tokensOwed1 += tokensOwed1;
