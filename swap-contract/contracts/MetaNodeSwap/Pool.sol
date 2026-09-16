@@ -344,16 +344,18 @@ contract Pool is IPool {
 
         emit Collect(msg.sender, recipient, amount0, amount1);
     }
-
+// LP 减少流动性，把对应的两种 token 记到自己账上，之后通过 collect() 领取
     function burn(
-        uint128 amount
+        uint128 amount   // 这次要减少（销毁）的 LP 流动性数量
+                         // override   实现接口里声明的 burn() 函数
+                         //  只能从合约外部调用这个函数
     ) external override returns (uint256 amount0, uint256 amount1) {
         require(amount > 0, "Burn amount must be greater than 0");
         require(
             amount <= positions[msg.sender].liquidity,
             "Burn amount exceeds liquidity"
         );
-        // 修改 positions 中的信息
+        //  在burn 场景下 amount0Int 和 amount1Int 都是负数
         (int256 amount0Int, int256 amount1Int) = _modifyPosition(
             ModifyPositionParams({
                 owner: msg.sender,
@@ -363,7 +365,9 @@ contract Pool is IPool {
         // 获取燃烧后的 amount0 和 amount1
         amount0 = uint256(-amount0Int);
         amount1 = uint256(-amount1Int);
-
+         // 意思就是一次给两个变量分别赋值
+        // 把应退回的 token0、token1 记到账本
+        // 注意：这里只记账，还没有真正转 token   //tokensOwed0 → 欠 LP 的 Token0
         if (amount0 > 0 || amount1 > 0) {
             (
                 positions[msg.sender].tokensOwed0,
@@ -373,7 +377,7 @@ contract Pool is IPool {
                 positions[msg.sender].tokensOwed1 + uint128(amount1)
             );
         }
-
+        // 记录：谁减少了多少流动性，以及对应多少 token
         emit Burn(msg.sender, amount, amount0, amount1);
     }
 
