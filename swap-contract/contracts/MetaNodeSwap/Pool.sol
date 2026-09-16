@@ -313,16 +313,16 @@ contract Pool is IPool {
 
         emit Mint(msg.sender, recipient, amount, amount0, amount1);
     }
-
+        // LP 来领取自己已经赚到的手续费。
     function collect(
-        address recipient,
-        uint128 amount0Requested,
-        uint128 amount1Requested
+        address recipient,   // 手续费转给谁
+        uint128 amount0Requested,  // 想领取多少 token0
+        uint128 amount1Requested   // 想领取多少 token1
     ) external override returns (uint128 amount0, uint128 amount1) {
-        // 获取当前用户的 position
+        // 获取当前用户的 position  // 找到调用者自己的 LP 仓位账本
         Position storage position = positions[msg.sender];
 
-        // 把钱退给用户 recipient
+        //  实际领取数量 = “想领的” 和 “账上有的” 取较小值
         amount0 = amount0Requested > position.tokensOwed0
             ? position.tokensOwed0
             : amount0Requested;
@@ -331,7 +331,10 @@ contract Pool is IPool {
             : amount1Requested;
 
         if (amount0 > 0) {
+             // 从账上扣掉已经领取的 token0；position.tokensOwed0 ： 可提取的 token0 数量  这个 LP 目前已经累计、可以领取的 Token0
+            // token0： 定义一个名叫 token0 的地址变量，它记录 Pool 的 token0 合约地址
             position.tokensOwed0 -= amount0;
+            // 真正把 token0 转给 LP
             TransferHelper.safeTransfer(token0, recipient, amount0);
         }
         if (amount1 > 0) {
