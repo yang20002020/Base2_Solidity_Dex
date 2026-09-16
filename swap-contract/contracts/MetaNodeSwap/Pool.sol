@@ -381,21 +381,30 @@ contract Pool is IPool {
         emit Burn(msg.sender, amount, amount0, amount1);
     }
 
-    // 交易中需要临时存储的变量
+    // 交易中需要临时存储的变量   
+    // Pool 合约执行 swap() 时的临时计算账本；
+    // 一次 swap() 执行时，合约创建一个 state，把这次交易计算过程中需要的数据临时放进去。
     struct SwapState {
         // the amount remaining to be swapped in/out of the input/output asset
+        // 这次 swap 还剩多少 token 没有换完
         int256 amountSpecifiedRemaining;
         // the amount already swapped out/in of the output/input asset
+        // 这次 swap 已经算出了多少“另一边的 token”
         int256 amountCalculated;
         // current sqrt(price)
+        // 当前价格
         uint160 sqrtPriceX96;
         // the global fee growth of the input token
+         // 输入 token 的累计手续费增长
         uint256 feeGrowthGlobalX128;
         // 该交易中用户转入的 token0 的数量
+        // 这次交易用户实际转入了多少 token0
         uint256 amountIn;
         // 该交易中用户转出的 token1 的数量
+         // 这次交易用户实际拿走了多少 token1
         uint256 amountOut;
         // 该交易中的手续费，如果 zeroForOne 是 ture，则是用户转入 token0，单位是 token0 的数量，反正是 token1 的数量
+        // 这次交易产生的手续费
         uint256 feeAmount;
     }
 
