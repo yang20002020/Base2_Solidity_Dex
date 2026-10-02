@@ -409,18 +409,25 @@ contract Pool is IPool {
     }
 
     function swap(
-        address recipient,
-        bool zeroForOne,
-        int256 amountSpecified,
-        uint160 sqrtPriceLimitX96,
-        bytes calldata data
+     address recipient,              // 换出来的 token 转给谁
+     bool zeroForOne,                // true：token0 → token1；false：token1 → token0
+     int256 amountSpecified,         // 用户指定的交易数量
+     uint160 sqrtPriceLimitX96,      // 用户允许的最低/最高价格
+     bytes calldata data             // 传给 callback 的额外数据
+                                     // 本次 swap 涉及的 token0 数量
     ) external override returns (int256 amount0, int256 amount1) {
         require(amountSpecified != 0, "AS");
 
         // zeroForOne: 如果从 token0 交换 token1 则为 true，从 token1 交换 token0 则为 false
-        // 判断当前价格是否满足交易的条件
+        // 判断当前价格是否满足交易的条件 // 检查用户设置的价格限制是否合法
+        // MIN_SQRT_PRICE：常量名称，意思是「最小平方根价格」
+        //         zeroForOne = true（token0 → token1）
+        // → sqrtPriceLimitX96 是最低价格限制。
+        // zeroForOne = false（token1 → token0）
+        // → sqrtPriceLimitX96 是最高价格限制。
         require(
-            zeroForOne
+             // sqrtPriceX96当前价格
+            zeroForOne 
                 ? sqrtPriceLimitX96 < sqrtPriceX96 &&
                     sqrtPriceLimitX96 > TickMath.MIN_SQRT_PRICE
                 : sqrtPriceLimitX96 > sqrtPriceX96 &&
@@ -429,44 +436,52 @@ contract Pool is IPool {
         );
 
         // amountSpecified 大于 0 代表用户指定了 token0 的数量，小于 0 代表用户指定了 token1 的数量
-        bool exactInput = amountSpecified > 0;
-
+        bool exactInput = amountSpecified > 0;   //amountSpecified  用户指定的交易数量
+        // zeroForOne: 如果从 token0 交换 token1 则为 true，从 token1 交换 token0 则为 false
         SwapState memory state = SwapState({
-            amountSpecifiedRemaining: amountSpecified,
-            amountCalculated: 0,
-            sqrtPriceX96: sqrtPriceX96,
-            feeGrowthGlobalX128: zeroForOne
+            amountSpecifiedRemaining: amountSpecified,    //这次 swap 还剩多少 token 没有换完amountSpecifiedRemaining: 用户指定的交易数量amountSpecified
+            amountCalculated: 0,                          // 这次 swap 已经算出了多少“另一边的 token”
+            sqrtPriceX96: sqrtPriceX96,       // 当前价格
+            feeGrowthGlobalX128: zeroForOne   // feeGrowthGlobalX128  输入 token 的累计手续费增长 
                 ? feeGrowthGlobal0X128
                 : feeGrowthGlobal1X128,
-            amountIn: 0,
-            amountOut: 0,
-            feeAmount: 0
+            amountIn: 0,    // 这次交易用户实际转入了多少 token0
+            amountOut: 0,   // 这次交易用户实际拿走了多少 token1
+            feeAmount: 0    // 这次交易产生的手续费
         });
 
-        // 计算交易的上下限，基于 tick 计算价格
+        // 计算交易的上下限，基于 tick 计算价格 ；tick：价格的“刻度”或者“档位编号”
+        // getSqrtPriceAtTick(tick) = 把“价格档位编号 tick”翻译成“机器实际计算用的 sqrtPriceX96”。
         uint160 sqrtPriceX96Lower = TickMath.getSqrtPriceAtTick(tickLower);
         uint160 sqrtPriceX96Upper = TickMath.getSqrtPriceAtTick(tickUpper);
         // 计算用户交易价格的限制，如果是 zeroForOne 是 true，说明用户会换入 token0，会压低 token0 的价格（也就是池子的价格），所以要限制最低价格不能超过 sqrtPriceX96Lower
+        // zeroForOne: 如果从 token0 交换 token1 则为 true，从 token1 交换 token0 则为 false
         uint160 sqrtPriceX96PoolLimit = zeroForOne
             ? sqrtPriceX96Lower
             : sqrtPriceX96Upper;
 
         // 计算交易的具体数值
+        // sqrtPriceX96PoolLimit  它是 Pool 自己的价格边界;sqrtPriceLimitX96 是用户自己设置的价格限制。
         (
             state.sqrtPriceX96,
+        // 该交易中用户转入的 token0 的数量
+        // 这次交易用户实际转入了多少 token0或者token1;它不是用户最初想换多少，而是机器算完后真实发生了多少。
             state.amountIn,
+       // 这次交易用户实际拿走了多少 token1或者token0
             state.amountOut,
             state.feeAmount
         ) = SwapMath.computeSwapStep(
             sqrtPriceX96,
+            // 下面代码的意思：用户设置了一个价格限制，Pool 本身也有一个价格边界。最终取一个更严格的限制，防止 Swap 超出 Pool 或用户允许的范围。
             (
                 zeroForOne
-                    ? sqrtPriceX96PoolLimit < sqrtPriceLimitX96
+                    ? sqrtPriceX96PoolLimit < sqrtPriceLimitX96   //  uint160 sqrtPriceLimitX96,  用户允许的最低/最高价格
                     : sqrtPriceX96PoolLimit > sqrtPriceLimitX96
             )
                 ? sqrtPriceLimitX96
                 : sqrtPriceX96PoolLimit,
             liquidity,
+            // amountSpecified 大于 0 代表用户指定了 token0 的数量，小于 0 代表用户指定了 token1 的数量
             amountSpecified,
             fee
         );
@@ -489,7 +504,7 @@ contract Pool is IPool {
             feeGrowthGlobal1X128 = state.feeGrowthGlobalX128;
         }
 
-        // 计算交易后用户手里的 token0 和 token1 的数量
+        // 计算交易后用户手里的 token0 和 token1 的数量 ;  true  代表用户指定了 token0 的数量，false 代表用户指定了 token1 的数量
         if (exactInput) {
             state.amountSpecifiedRemaining -= (state.amountIn + state.feeAmount)
                 .toInt256();
