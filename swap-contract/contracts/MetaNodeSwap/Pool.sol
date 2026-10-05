@@ -392,7 +392,7 @@ contract Pool is IPool {
         // 这次 swap 已经算出了多少“另一边的 token”
         int256 amountCalculated;
         // current sqrt(price)
-        // 当前价格
+        // 当前价格  sqrtPriceX96 = 当前这个池子里，token0 和 token1 的“实时价格指针”。
         uint160 sqrtPriceX96;
         // the global fee growth of the input token
          // 输入 token 的累计手续费增长
@@ -414,7 +414,8 @@ contract Pool is IPool {
      int256 amountSpecified,         // 用户指定的交易数量
      uint160 sqrtPriceLimitX96,      // 用户允许的最低/最高价格
      bytes calldata data             // 传给 callback 的额外数据
-                                     // 本次 swap 涉及的 token0 数量
+                                     // int256 amount0, int256 amount1 就是这次 Swap 最终对 Pool 来说，token0 和 token1 各自发生了多少数量变化。
+                                     //  amount0、amount1 是 Swap 最终的“资金流账单”：正数 = 钱进 Pool，负数 = 钱出 Pool。
     ) external override returns (int256 amount0, int256 amount1) {
         require(amountSpecified != 0, "AS");
 
@@ -463,12 +464,14 @@ contract Pool is IPool {
         // 计算交易的具体数值
         // sqrtPriceX96PoolLimit  它是 Pool 自己的价格边界;sqrtPriceLimitX96 是用户自己设置的价格限制。
         (
+        // sqrtPriceX96 = 当前这个池子里，token0 和 token1 的“实时价格指针”。
             state.sqrtPriceX96,
         // 该交易中用户转入的 token0 的数量
         // 这次交易用户实际转入了多少 token0或者token1;它不是用户最初想换多少，而是机器算完后真实发生了多少。
             state.amountIn,
        // 这次交易用户实际拿走了多少 token1或者token0
             state.amountOut,
+       // 这次交易产生的手续费
             state.feeAmount
         ) = SwapMath.computeSwapStep(
             sqrtPriceX96,
@@ -491,6 +494,7 @@ contract Pool is IPool {
         tick = TickMath.getTickAtSqrtPrice(state.sqrtPriceX96);
 
         // 计算手续费
+        // uint256 feeGrowthGlobalX128;// 输入 token 的累计手续费增长 
         state.feeGrowthGlobalX128 += FullMath.mulDiv(
             state.feeAmount,
             FixedPoint128.Q128,
@@ -498,27 +502,53 @@ contract Pool is IPool {
         );
 
         // 更新手续费相关信息
+        // zeroForOne = true
+        // → token0 → token1
+        // → 用户输入的是 token0
+        // → 手续费也是 token0
+        // → 更新 feeGrowthGlobal0X128
         if (zeroForOne) {
             feeGrowthGlobal0X128 = state.feeGrowthGlobalX128;
         } else {
             feeGrowthGlobal1X128 = state.feeGrowthGlobalX128;
         }
 
+        // amountSpecified > 0
+        //         ↓
+        // exactInput = true
+        //         ↓
+        // Exact Input
+
+        // amountSpecified < 0
+        //         ↓
+        // exactInput = false
+        //         ↓
+        // Exact Output
         // 计算交易后用户手里的 token0 和 token1 的数量 ;  true  代表用户指定了 token0 的数量，false 代表用户指定了 token1 的数量
-        if (exactInput) {
-            state.amountSpecifiedRemaining -= (state.amountIn + state.feeAmount)
-                .toInt256();
-            state.amountCalculated = state.amountCalculated.sub(
-                state.amountOut.toInt256()
-            );
+        // amountSpecified 大于 0 代表用户指定了 token0 的数量，小于 0 代表用户指定了 token1 的数量
+        // bool exactInput = amountSpecified > 0;   //amountSpecified  用户指定的交易数量
+
+        if (exactInput) {                
+           // int256 amountSpecifiedRemaining; // 这次 swap 还剩多少 token 没有换完
+           // state.amountIn 这次交易用户实际转入了多少 token0或者token1;它不是用户最初想换多少，而是机器算完后真实发生了多少。
+            state.amountSpecifiedRemaining -= (state.amountIn + state.feeAmount).toInt256();
+           // int256 amountCalculated;这次 swap 已经算出了多少“另一边的 token”  ；state.amountOut 是正数；state.amountCalculated是负数   
+            state.amountCalculated = state.amountCalculated.sub(state.amountOut.toInt256());
         } else {
+            // amountOut 这次交易用户实际拿走了多少 token1或者token0；state.amountOut 是正数；amountSpecifiedRemaining 是负数；
             state.amountSpecifiedRemaining += state.amountOut.toInt256();
+            // 为了给用户这么多 tokenOut，用户目前需要支付多少 tokenIn + 手续费。
             state.amountCalculated = state.amountCalculated.add(
                 (state.amountIn + state.feeAmount).toInt256()
             );
         }
+       // 把前面算好的“输入多少、输出多少”，转换成 amount0 和 amount1。
+        //        zeroForOne = true
+        // → token0 → token1
 
-        (amount0, amount1) = zeroForOne == exactInput
+        // zeroForOne = false
+        // → token1 → token0
+        (amount0, amount1) = zeroForOne == exactInput  
             ? (
                 amountSpecified - state.amountSpecifiedRemaining,
                 state.amountCalculated
