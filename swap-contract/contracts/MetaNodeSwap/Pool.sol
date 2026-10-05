@@ -546,7 +546,7 @@ contract Pool is IPool {
         //        zeroForOne = true
         // → token0 → token1
 
-        // zeroForOne = false
+        // zeroForOne = false              //  exactInput = false  false 代表用户指定了 token1 的数量
         // → token1 → token0
         (amount0, amount1) = zeroForOne == exactInput  
             ? (
@@ -558,34 +558,62 @@ contract Pool is IPool {
                 amountSpecified - state.amountSpecifiedRemaining
             );
 
-        if (zeroForOne) {
-            // callback 中需要给 Pool 转入 token
-            uint256 balance0Before = balance0();
-            ISwapCallback(msg.sender).swapCallback(amount0, amount1, data);
-            require(balance0Before.add(uint256(amount0)) <= balance0(), "IIA");
+       if (zeroForOne) {
+            // token0 → token1
+            // 用户需要把 token0 转给 Pool，Pool 再把 token1 给用户
 
-            // 转 Token 给用户
+            // 记录转账前 Pool 的 token0 余额
+            uint256 balance0Before = balance0();
+
+            // 调用用户的 callback
+            // 用户在 callback 中把需要支付的 token0 转给 Pool
+            // amount0 > 0：用户需要支付 token0
+            // amount1 < 0：Pool 需要给用户 token1
+            ISwapCallback(msg.sender).swapCallback(amount0, amount1, data);
+
+            // 检查 callback 执行后，Pool 是否确实收到了足够的 token0
+            // balance0Before + amount0 <= 当前 balance0
+            // 如果余额没有增加到要求的数量，交易回滚
+            require(
+                balance0Before.add(uint256(amount0)) <= balance0(),
+                "IIA"
+            );
+
+            // 如果 amount1 < 0，说明 Pool 要把 token1 给用户
             if (amount1 < 0)
                 TransferHelper.safeTransfer(
                     token1,
                     recipient,
-                    uint256(-amount1)
+                    uint256(-amount1) // -(-50) = 50，实际转出 50 个 token1
                 );
-        } else {
-            // callback 中需要给 Pool 转入 token
-            uint256 balance1Before = balance1();
-            ISwapCallback(msg.sender).swapCallback(amount0, amount1, data);
-            require(balance1Before.add(uint256(amount1)) <= balance1(), "IIA");
 
-            // 转 Token 给用户
+        } else {
+            // token1 → token0
+            // 用户需要把 token1 转给 Pool，Pool 再把 token0 给用户
+
+            // 记录转账前 Pool 的 token1 余额
+            uint256 balance1Before = balance1();
+
+            // 调用用户的 callback
+            // 用户在 callback 中把需要支付的 token1 转给 Pool
+            // amount1 > 0：用户需要支付 token1
+            // amount0 < 0：Pool 需要给用户 token0
+            ISwapCallback(msg.sender).swapCallback(amount0, amount1, data);
+
+            // 检查 callback 执行后，Pool 是否确实收到了足够的 token1
+            require(
+                balance1Before.add(uint256(amount1)) <= balance1(),
+                "IIA"
+            );
+
+            // 如果 amount0 < 0，说明 Pool 要把 token0 给用户
             if (amount0 < 0)
                 TransferHelper.safeTransfer(
                     token0,
                     recipient,
-                    uint256(-amount0)
+                    uint256(-amount0) // -(-50) = 50，实际转出 50 个 token0
                 );
         }
-
 
         //         谁交易
         // ↓
