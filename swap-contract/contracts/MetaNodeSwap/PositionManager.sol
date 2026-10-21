@@ -13,6 +13,8 @@ import "./interfaces/IPositionManager.sol";
 import "./interfaces/IPool.sol";
 import "./interfaces/IPoolManager.sol";
 
+// 这段 PositionManager 可以把它理解成一个 “LP 流动性仓库管理员 + NFT 凭证管理器”
+// PositionManager 就是帮用户管理 Uniswap V3 风格 LP 仓位的“中介”：负责开仓、撤流动性、领本金和手续费，并用 NFT 代表这笔仓位。
 contract PositionManager is IPositionManager, ERC721 {
     // 保存 PoolManager 合约地址
     IPoolManager public poolManager;
@@ -53,7 +55,8 @@ contract PositionManager is IPositionManager, ERC721 {
         require(_blockTimestamp() <= deadline, "Transaction too old");
         _;
     }
-
+//  mint()：创建 LP 仓位
+// 用户提供两种 Token，合约计算能提供多少流动性，调用 Pool 登记仓位，再给用户铸造一个 NFT 作为凭证。
     function mint(
         MintParams calldata params
     )
@@ -101,11 +104,13 @@ contract PositionManager is IPositionManager, ERC721 {
             params.index,
             msg.sender
         );
-
+        // 告诉 Pool：“我要在这个价格区间增加一笔流动性，请给我登记这笔 LP 仓位，并告诉我需要交多少 Token。”
         (amount0, amount1) = pool.mint(address(this), liquidity, data);
 
         _mint(params.recipient, (positionId = _nextId++));
-
+        // 从 Pool 里把 PositionManager 这笔 LP 仓位的“手续费累计值”读出来，保存下来。
+        // feeGrowthInside0LastX128 → Token0 的手续费累计值
+        // feeGrowthInside1LastX128 → Token1 的手续费累计值
         (
             ,
             uint256 feeGrowthInside0LastX128,
@@ -113,7 +118,7 @@ contract PositionManager is IPositionManager, ERC721 {
             ,
 
         ) = pool.getPosition(address(this));
-
+        // 把刚刚创建的这笔 LP 仓位，完整登记到 positions 账本里。
         positions[positionId] = PositionInfo({
             id: positionId,
             owner: params.recipient,
