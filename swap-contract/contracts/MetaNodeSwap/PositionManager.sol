@@ -75,19 +75,30 @@ contract PositionManager is IPositionManager, ERC721 {
         // NFT 的 tokenId 就是 positionId
         // 通过 MintParams 里面的 token0 和 token1 以及 index 获取对应的 Pool
         // 调用 poolManager 的 getPool 方法获取 Pool 地址
+          // 第一步：获取对应的 Pool 合约地址。
         address _pool = poolManager.getPool(
             params.token0,
             params.token1,
             params.index
         );
+        // 将 Pool 合约地址转换为 IPool 接口类型，
+        // 后续就可以通过 pool 调用 Pool 合约的方法。
         IPool pool = IPool(_pool);
 
         // 通过获取 pool 相关信息，结合 params.amount0Desired 和 params.amount1Desired 计算这次要注入的流动性
 
+       // 第二步：获取 Pool 当前的价格和流动性价格区间。
+       // sqrtPriceX96：当前价格的平方根，采用 Q96 定点数格式。
         uint160 sqrtPriceX96 = pool.sqrtPriceX96();
+        // 获取流动性区间下限对应的平方根价格。
         uint160 sqrtRatioAX96 = TickMath.getSqrtPriceAtTick(pool.tickLower());
+          // 获取流动性区间上限对应的平方根价格。
         uint160 sqrtRatioBX96 = TickMath.getSqrtPriceAtTick(pool.tickUpper());
-
+        // 第三步：根据当前价格、价格区间以及用户希望投入的两种 Token 数量，
+            // 计算本次可以提供多少流动性。
+            //
+            // 注意：amount0Desired 和 amount1Desired 是用户愿意投入的最大数量，
+            // 不一定会全部使用。
         liquidity = LiquidityAmounts.getLiquidityForAmounts(
             sqrtPriceX96,
             sqrtRatioAX96,
@@ -98,6 +109,11 @@ contract PositionManager is IPositionManager, ERC721 {
 
         // data 是 mint 后回调 PositionManager 会额外带的数据
         // 需要 PoistionManger 实现回调，在回调中给 Pool 打钱
+
+        // 第四步：准备回调所需的数据。
+        // Pool 在执行 mint 时，会回调 PositionManager 的 mintCallback()。
+        // 这里把 Token 地址、Pool 索引和付款人地址编码起来，
+        // 供回调函数解码使用。
         bytes memory data = abi.encode(
             params.token0,
             params.token1,
@@ -105,12 +121,36 @@ contract PositionManager is IPositionManager, ERC721 {
             msg.sender
         );
         // 告诉 Pool：“我要在这个价格区间增加一笔流动性，请给我登记这笔 LP 仓位，并告诉我需要交多少 Token。”
+        // 第五步：向 Pool 注册这笔流动性。
+        //
+        // 第一个参数 address(this)：将底层 Pool 仓位记在 PositionManager 名下，
+        // 而不是直接记在最终用户名下。
+        //
+        // 第二个参数 liquidity：本次要添加的流动性数量。
+        //
+        // 第三个参数 data：传递给 mintCallback() 的付款信息。
+        //
+        // 返回值 amount0、amount1：本次实际需要支付的 Token 数量。
         (amount0, amount1) = pool.mint(address(this), liquidity, data);
-
+        // 第六步：给用户铸造 NFT 仓位凭证。
+            //
+            // positionId 就是这张 NFT 的 tokenId。
+            // _nextId 从 1 开始，每创建一笔仓位就递增一次。
+            // NFT 发送给 params.recipient 指定的地址。
         _mint(params.recipient, (positionId = _nextId++));
         // 从 Pool 里把 PositionManager 这笔 LP 仓位的“手续费累计值”读出来，保存下来。
         // feeGrowthInside0LastX128 → Token0 的手续费累计值
         // feeGrowthInside1LastX128 → Token1 的手续费累计值
+        // 第七步：读取 PositionManager 在该 Pool 中的仓位信息，
+        // 获取当前已经记录的区间手续费累计值。
+        // 后续可以通过“最新累计值 - 上次记录值”，
+        // 计算这笔仓位新增的手续费。
+        // - feeGrowthInside0LastX128：价格区间内，每单位流动性对应的 Token0 手续费累计增长值。
+        // - feeGrowthInside1LastX128：价格区间内，每单位流动性对应的 Token1 手续费累计增长值。
+        // 这里有三个关键点：
+        // - Inside：只关注当前仓位价格区间内的手续费。
+        // - Growth：累计增长值，不是实际收到的手续费数量。
+        // - X128：采用 Q128 定点数格式，即用 \(2^{128}\) 作为缩放因子。
         (
             ,
             uint256 feeGrowthInside0LastX128,
