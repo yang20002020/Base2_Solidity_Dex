@@ -260,7 +260,8 @@ contract PositionManager is IPositionManager, ERC721 {
         // 后续需要调用 collect() 才能领取。
         position.liquidity = 0;
     }
-
+    // 业务主线： 检查权限 → 找到 Pool → 领取本金和手续费 → 清零待领取账本 → 如果流动性为零，销毁 NFT。
+    // 注意：collect() 本身不移除流动性，移除流动性由 burn() 完成；collect() 负责把待领取的 Token 转给 recipient。
     function collect(
         uint256 positionId,
         address recipient
@@ -271,14 +272,21 @@ contract PositionManager is IPositionManager, ERC721 {
         returns (uint256 amount0, uint256 amount1)
     {
         // 通过 isAuthorizedForToken 检查 positionId 是否有权限
-        // 调用 Pool 的方法给 LP 退流动性
+        // 第一步：通过 isAuthorizedForToken 检查调用者是否有权限操作该 NFT 仓位。
+        //  // 第二步：获取对应的仓位信息。
         PositionInfo storage position = positions[positionId];
+        // 第三步：根据 Token 地址和 Pool 索引，找到对应的资金池。
         address _pool = poolManager.getPool(
             position.token0,
             position.token1,
             position.index
         );
         IPool pool = IPool(_pool);
+        // 第四步：调用 Pool 的 collect()，领取待领取的 Token。
+        // recipient：接收 Token 的地址。
+        // position.tokensOwed0、position.tokensOwed1：
+        // 这笔仓位账本中记录的 Token0 和 Token1 待领取数量。
+        // amount0、amount1：本次实际领取到的两种 Token 数量。
         (amount0, amount1) = pool.collect(
             recipient,
             position.tokensOwed0,
@@ -286,9 +294,12 @@ contract PositionManager is IPositionManager, ERC721 {
         );
 
         // position 已经彻底没用了，销毁
+        // 第五步：清零仓位账本中的待领取金额。
+       // 表示本次记录的待领取金额已经提交给 Pool 处理。
         position.tokensOwed0 = 0;
         position.tokensOwed1 = 0;
-
+        // 第六步：如果流动性已经归零，说明仓位没有剩余流动性。
+        // 此时领取完待领取的 Token 后，销毁对应的 NFT。
         if (position.liquidity == 0) {
             _burn(positionId);
         }
