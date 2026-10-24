@@ -14,18 +14,26 @@ contract SwapRouter is ISwapRouter {
     constructor(address _poolManager) {
         poolManager = IPoolManager(_poolManager);
     }
-
+     // 解析合约调用失败时返回的错误数据，区分正常报价数据和真正的错误信息
     /// @dev Parses a revert reason that should contain the numeric quote
     function parseRevertReason(
         bytes memory reason
     ) private pure returns (int256, int256) {
+        // 如果返回数据长度不是 64 字节，说明它不是预期的报价数据
         if (reason.length != 64) {
+             // 长度小于 68 字节，无法满足标准 Error(string) 错误数据的基本长度要求
             if (reason.length < 68) revert("Unexpected error");
+            //  assembly 不是对象，而是 Solidity 的关键字，用于编写内联汇编代码
             assembly {
+               // 跳过前 4 字节的错误选择器，解析后面的字符串错误信息
+            //    add(reason, 0x04)：将 reason 的内存指针向后移动 4 字节。赋值给 reason
                 reason := add(reason, 0x04)
             }
+             // 还原原始错误信息，并重新抛出
             revert(abi.decode(reason, (string)));
         }
+        // 如果长度恰好为 64 字节，则将数据解析为两个 int256 数值
+        // 这两个数值分别代表 amount0Delta 和 amount1Delta
         return abi.decode(reason, (int256, int256));
     }
 
