@@ -304,22 +304,31 @@ contract PositionManager is IPositionManager, ERC721 {
             _burn(positionId);
         }
     }
-
+    // 业务主线： 解码付款信息 → 验证回调者是合法 Pool → 从用户账户转出所需的 Token → 支付给 Pool。
+    // 理解关键点： pool.mint() 负责登记流动性，mintCallback() 负责付款。payer 是实际出钱的人，msg.sender 是接收 Token 的 Pool。
     function mintCallback(
         uint256 amount0,
         uint256 amount1,
         bytes calldata data
     ) external override {
         // 检查 callback 的合约地址是否是 Pool
+        // 第一步：解码调用 mint() 时传入的 data。
+        // 获取 Token0、Token1 地址、Pool 索引和付款人 payer。
         (address token0, address token1, uint32 index, address payer) = abi
             .decode(data, (address, address, uint32, address));
+        // 第二步：根据 Token 地址和 Pool 索引，获取正确的 Pool 地址。
         address _pool = poolManager.getPool(token0, token1, index);
+        // 第三步：验证当前调用者是否为对应的 Pool。
         require(_pool == msg.sender, "Invalid callback caller");
 
         // 在这里给 Pool 打钱，需要用户先 approve 足够的金额，这里才会成功
+       // 第四步：如果需要支付 Token0，就从付款人账户转账给 Pool。
+       // payer 必须提前授权足够的 Token0 给 PositionManager。
         if (amount0 > 0) {
             IERC20(token0).transferFrom(payer, msg.sender, amount0);
         }
+        // 第五步：如果需要支付 Token1，就从付款人账户转账给 Pool。
+        // payer 必须提前授权足够的 Token1 给 PositionManager。
         if (amount1 > 0) {
             IERC20(token1).transferFrom(payer, msg.sender, amount1);
         }
