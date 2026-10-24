@@ -182,6 +182,9 @@ contract PositionManager is IPositionManager, ERC721 {
         _;
     }
 
+
+   // 通过 isAuthorizedForToken 检查 positionId 是否有权限
+    // 移除流动性，但是 token 还是保留在 pool 中，需要再调用 collect 方法才能取回 token
     function burn(
         uint256 positionId
     )
@@ -190,21 +193,29 @@ contract PositionManager is IPositionManager, ERC721 {
         isAuthorizedForToken(positionId)
         returns (uint256 amount0, uint256 amount1)
     {
+         // 第一步：根据 positionId 获取对应的 LP 仓位信息。
+         // storage 表示直接引用链上存储中的数据，修改 position 会直接更新状态。
         PositionInfo storage position = positions[positionId];
-        // 通过 isAuthorizedForToken 检查 positionId 是否有权限
-        // 移除流动性，但是 token 还是保留在 pool 中，需要再调用 collect 方法才能取回 token
-        // 通过 positionId 获取对应 LP 的流动性
+     
+        // 第二步：读取这笔仓位当前提供的流动性数量。
         uint128 _liquidity = position.liquidity;
-        // 调用 Pool 的方法给 LP 退流动性
+        // 第三步：根据 Token 地址和 Pool 索引，找到对应的资金池。
         address _pool = poolManager.getPool(
             position.token0,
             position.token1,
             position.index
         );
         IPool pool = IPool(_pool);
+        // 第四步：调用 Pool 移除这笔流动性。
+        // amount0、amount1 表示移除流动性后应返还的两种 Token 本金。
+        // 注意：这里返回数量，但 Token 尚未转给用户。
+        // ● amount0：本次 burn()退回的 Token0 本金数量。
+        // ● position.tokensOwed0：这笔仓位累计待领取的 Token0 总额，包含本金和手续费。
         (amount0, amount1) = pool.burn(_liquidity);
 
         // 计算这部分流动性产生的手续费
+        // 第五步：读取 Pool 中 PositionManager 仓位的最新手续费累计值。
+        // 用于计算自上次记录以来，这笔流动性产生的手续费。
         (
             ,
             uint256 feeGrowthInside0LastX128,
@@ -212,7 +223,11 @@ contract PositionManager is IPositionManager, ERC721 {
             ,
 
         ) = pool.getPosition(address(this));
-
+        // 第六步：计算 Token0 的待领取总额。
+        // 原有待领取金额 + 本次返还的本金 + 本次新增的手续费。
+        //
+        // 最新手续费累计值 - 上次记录的累计值 = 手续费累计增长量。
+        // 乘以仓位流动性，再除以 Q128 缩放因子，得到新增手续费。
         position.tokensOwed0 +=
             uint128(amount0) +
             uint128(
@@ -223,7 +238,8 @@ contract PositionManager is IPositionManager, ERC721 {
                     FixedPoint128.Q128
                 )
             );
-
+        // 第七步：计算 Token1 的待领取总额。
+        // 计算方式与 Token0 相同。
         position.tokensOwed1 +=
             uint128(amount1) +
             uint128(
@@ -235,9 +251,13 @@ contract PositionManager is IPositionManager, ERC721 {
                 )
             );
 
-        // 更新 position 的信息
+        // 第八步：更新两种 Token 的手续费累计值快照。
+        // 为后续手续费结算保存最新的基准值。
         position.feeGrowthInside0LastX128 = feeGrowthInside0LastX128;
         position.feeGrowthInside1LastX128 = feeGrowthInside1LastX128;
+        // 第九步：将本仓位的流动性设置为 0，表示已移除全部流动性。
+        // 本金和手续费仍记录在 tokensOwed0、tokensOwed1 中，
+        // 后续需要调用 collect() 才能领取。
         position.liquidity = 0;
     }
 
