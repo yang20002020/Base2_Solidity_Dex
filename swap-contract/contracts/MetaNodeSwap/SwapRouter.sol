@@ -36,14 +36,21 @@ contract SwapRouter is ISwapRouter {
         // 这两个数值分别代表 amount0Delta 和 amount1Delta
         return abi.decode(reason, (int256, int256));
     }
-
+    // 调用指定的 Pool 执行代币交换，并处理交换结果或异常数据
+    // 假设 pool.swap() 执行成功，返回：
+    // return (100, -200);
+    // 第二步：自动接收返回值
+    // returns (int256 _amount0, int256 _amount1)
+    // 相当于自动完成：
+    // _amount0 = 100;
+    // _amount1 = -200;
     function swapInPool(
-        IPool pool,
-        address recipient,
-        bool zeroForOne,
-        int256 amountSpecified,
-        uint160 sqrtPriceLimitX96,
-        bytes calldata data
+        IPool pool,                     // 要执行交换的资金池合约
+        address recipient,               // 兑换所得代币的接收地址
+        bool zeroForOne,                 // true：token0 换 token1；false：token1 换 token0
+        int256 amountSpecified,          // 指定交换数量：正数表示指定输入，负数表示指定输出
+        uint160 sqrtPriceLimitX96,       // 交换过程中允许达到的价格边界
+        bytes calldata data              // 传递给 Pool 的附加数据，供 swapCallback 使用
     ) external returns (int256 amount0, int256 amount1) {
         try
             pool.swap(
@@ -53,6 +60,8 @@ contract SwapRouter is ISwapRouter {
                 sqrtPriceLimitX96,
                 data
             )
+        // returns：声明返回值。 returns 是声明，return 是返回。
+        // return：真正把结果返回出去。
         returns (int256 _amount0, int256 _amount1) {
             return (_amount0, _amount1);
         } catch (bytes memory reason) {
