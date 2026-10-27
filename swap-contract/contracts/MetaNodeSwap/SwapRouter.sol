@@ -68,18 +68,30 @@ contract SwapRouter is ISwapRouter {
             return parseRevertReason(reason);
         }
     }
-
+// 用户指定投入多少代币，Router 找到对应的 Pool 执行兑换，累计实际获得的代币数量，最后检查滑点是否超出限制。
+// 一句话记住业务流程
+// 准备输入 → 查找 Pool → 执行兑换 → 统计输入和输出 → 检查滑点 → 返回结果。
+// 举个例子：用户准备投入 100 个 Token A，兑换 Token B。
+// Pool 实际消耗 98 个 A，换得 195 个 B，那么 amountIn 剩余 2，amountOut 累计为 195。
     function exactInput(
         ExactInputParams calldata params
     ) external payable override returns (uint256 amountOut) {
-        // 记录确定的输入 token 的 amount
+        // 记录确定的输入 token 的 amount  
+         // 1. 记录用户准备投入的代币数量
         uint256 amountIn = params.amountIn;
 
         // 根据 tokenIn 和 tokenOut 的大小关系，确定是从 token0 到 token1 还是从 token1 到 token0
+        // 根据代币地址排序，确定交换方向：token0 → token1 或 token1 → token0
+        //  在 Uniswap V3 这类设计中，创建 Pool 时会按照地址大小对两个代币进行排序：
+        // - 地址较小的代币是 token0
+        // - 地址较大的代币是 token1
+        // 因此，只需要比较 tokenIn 和 tokenOut 的地址，就可以确定交换方向。
         bool zeroForOne = params.tokenIn < params.tokenOut;
 
         // 遍历指定的每一个 pool
+        // 2. 遍历指定的 Pool，逐个执行兑换
         for (uint256 i = 0; i < params.indexPath.length; i++) {
+            // 根据代币对和费率索引，查找对应的 Pool
             address poolAddress = poolManager.getPool(
                 params.tokenIn,
                 params.tokenOut,
@@ -93,6 +105,8 @@ contract SwapRouter is ISwapRouter {
             IPool pool = IPool(poolAddress);
 
             // 构造 swapCallback 函数需要的参数
+            // 打包回调所需信息：代币地址、费率索引、付款人
+           // recipient 为 0 表示报价模拟，此时 payer 也设为 0
             bytes memory data = abi.encode(
                 params.tokenIn,
                 params.tokenOut,
@@ -101,6 +115,12 @@ contract SwapRouter is ISwapRouter {
             );
 
             // 调用 pool 的 swap 函数，进行交换，并拿到返回的 token0 和 token1 的数量
+            // 调用 Pool 执行兑换，获取两种代币的数量变化
+            // amount0 和 amount1 分别表示：这次兑换中，Token0 和 Token1 的数量变化。
+            // 假设用户用 100 个 Token0 兑换 Token1，最终获得 200 个 Token1。
+            // 变量	返回值	含义
+            // amount0	100	 Pool 收到 100 个 Token0
+            // amount1	-200	Pool 支出 200 个 Token1
             (int256 amount0, int256 amount1) = this.swapInPool(
                 pool,
                 params.recipient,
@@ -111,10 +131,18 @@ contract SwapRouter is ISwapRouter {
             );
 
             // 更新 amountIn 和 amountOut
+            // 扣除本次实际消耗的输入代币，得到剩余输入数量
+            // amountIn 表示本次兑换中，输入代币还剩余多少没有被消耗。
             amountIn -= uint256(zeroForOne ? amount0 : amount1);
+            // 累加本次获得的输出代币数量
+            //  amountOut 表示用户通过兑换，实际获得的输出代币总数量。
+            //  - 如果 zeroForOne == true，取 -amount1，因为输出的是 Token1。
+            // - 如果 zeroForOne == false，取 -amount0，因为输出的是 Token0。
+            // 为什么要加负号？因为 Pool 的约定是：流出 Pool 的代币数量为负数，而用户获得的数量需要用正数表示。
             amountOut += uint256(zeroForOne ? -amount1 : -amount0);
 
             // 如果 amountIn 为 0，表示交换完成，跳出循环
+            // 返回实际获得的输出代币数量
             if (amountIn == 0) {
                 break;
             }
@@ -123,10 +151,10 @@ contract SwapRouter is ISwapRouter {
         // 如果交换到的 amountOut 小于指定的最少数量 amountOutMinimum，则抛出错误
         require(amountOut >= params.amountOutMinimum, "Slippage exceeded");
 
-        // 发送 Swap 事件
+         // 4. 记录本次兑换结果
         emit Swap(msg.sender, zeroForOne, params.amountIn, amountIn, amountOut);
 
-        // 返回 amountOut
+        // 返回实际获得的输出代币数量
         return amountOut;
     }
 
