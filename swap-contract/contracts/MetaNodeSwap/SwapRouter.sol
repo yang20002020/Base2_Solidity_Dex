@@ -157,11 +157,16 @@ contract SwapRouter is ISwapRouter {
         // 返回实际获得的输出代币数量
         return amountOut;
     }
-
+    //   变量	        exactInput()            	exactOutput()
+    // amountIn	    剩余未消耗的输入代币数量	  累计需要支付的输入代币数量
+    // amountOut	累计获得的输出代币数量	      尚未完成的目标输出数量
+    // 用户指定想获得多少代币，Router 调用 Pool 执行兑换，计算需要支付多少输入代币，并检查是否超过最大限额。
+    // 业务流程： 确定目标输出数量 → 查找 Pool → 执行兑换 → 累计输入成本 → 检查最大支出 → 返回所需输入量。
     function exactOutput(
         ExactOutputParams calldata params
     ) external payable override returns (uint256 amountIn) {
         // 记录确定的输出 token 的 amount
+        // 记录用户想获得的输出代币数量
         uint256 amountOut = params.amountOut;
 
         // 根据 tokenIn 和 tokenOut 的大小关系，确定是从 token0 到 token1 还是从 token1 到 token0
@@ -190,6 +195,9 @@ contract SwapRouter is ISwapRouter {
             );
 
             // 调用 pool 的 swap 函数，进行交换，并拿到返回的 token0 和 token1 的数量
+            // amount0 和 amount1 表示：本次兑换时，Token0 和 Token1 各自的数量变化。
+            // amount0 = 100：表示本次需要支付的输入代币数量。
+            // amount1 = -200：表示本次获得的输出代币数量，负号表示代币从 Pool 流出。
             (int256 amount0, int256 amount1) = this.swapInPool(
                 pool,
                 params.recipient,
@@ -199,8 +207,18 @@ contract SwapRouter is ISwapRouter {
                 data
             );
 
-            // 更新 amountOut 和 amountIn
+            // 更新还差多少输出代币，以及累计需要支付多少输入代币。
+            //amountOut 尚未完成的目标输出数量
+            // 假设 zeroForOne == true，即 Token0 换 Token1。
+            // Pool 返回：
+            // amount0 = 100;    // Pool 收到 100 个 Token0
+            // amount1 = -200;   // Pool 支出 200 个 Token1
+            // 假设 zeroForOne == false，也就是 Token1 换 Token0。
+            // 假设用户想获得 200 个 Token0，需要支付 100 个 Token1
+            // amount0 = -200;  // Pool 支出 200 个 Token0
+            // amount1 = 100;   // Pool 收到 100 个 Token1
             amountOut -= uint256(zeroForOne ? -amount1 : -amount0);
+            //amountIn 累计需要支付的输入代币数量
             amountIn += uint256(zeroForOne ? amount0 : amount1);
 
             // 如果 amountOut 为 0，表示交换完成，跳出循环
