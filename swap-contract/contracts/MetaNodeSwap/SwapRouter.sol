@@ -290,24 +290,35 @@ contract SwapRouter is ISwapRouter {
             );
     }
 
+// 这个函数的核心业务逻辑是：Pool 进行代币兑换时，回调 Router，
+// Router 检查调用者是否合法，然后根据是报价还是实际交易，决定回滚返回报价，还是转账给 Pool。
     function swapCallback(
         int256 amount0Delta,
         int256 amount1Delta,
         bytes calldata data
     ) external override {
-        // transfer token
+         // 解码回调数据，获取输入代币、输出代币、交易池索引和付款人地址
         (address tokenIn, address tokenOut, uint32 index, address payer) = abi
             .decode(data, (address, address, uint32, address));
+        // 根据代币地址和索引，查询本次兑换对应的 Pool 地址
         address _pool = poolManager.getPool(tokenIn, tokenOut, index);
 
         // 检查 callback 的合约地址是否是 Pool
+         // 安全检查：只有对应的 Pool 才能调用本回调，防止恶意合约伪造回调
         require(_pool == msg.sender, "Invalid callback caller");
-
+        // 计算本次兑换需要支付的代币数量：
+        // amount0Delta > 0，表示 Pool 需要收到 token0，因此支付 amount0Delta
+        // 否则支付 amount1Delta，即由 Pool 需要收到的 token1 数量
+        // 本次兑换中，需要支付给 Pool 的输入代币数量。
         uint256 amountToPay = amount0Delta > 0
             ? uint256(amount0Delta)
             : uint256(amount1Delta);
         // payer 是 address(0)，这是一个用于预估 token 的请求（quoteExactInput or quoteExactOutput）
         // 参考代码 https://github.com/Uniswap/v3-periphery/blob/main/contracts/lens/Quoter.sol#L38
+        // 报价模式不需要真的转账，因此利用 revert(ptr, 64) 把计算出的 amount0Delta 和 amount1Delta 返回给外层。
+        // 如果 payer 是零地址，说明这是报价模拟，而不是真实交易
+        // 将 Pool 计算出的两个代币数量变化写入内存，并通过 revert 返回
+        // 外层可以捕获这 64 字节的回滚数据，解析出 amount0Delta 和 amount1Delta
         if (payer == address(0)) {
             assembly {
                 let ptr := mload(0x40)
@@ -317,7 +328,7 @@ contract SwapRouter is ISwapRouter {
             }
         }
 
-        // 正常交易，转账给交易池
+        // 正常交易，转账给交易池   // 本次兑换中，需要支付给 Pool 的输入代币数量。
         if (amountToPay > 0) {
             IERC20(tokenIn).transferFrom(payer, _pool, amountToPay);
         }
