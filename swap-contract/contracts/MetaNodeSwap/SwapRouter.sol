@@ -243,7 +243,14 @@ contract SwapRouter is ISwapRouter {
         return amountIn;
     }
 
-    // 报价，指定 tokenIn 的数量和 tokenOut 的最小值，返回 tokenOut 的实际数量
+// 对比	          exactInput()	                   quoteExactInput()
+// 目的	         实际执行代币兑换	                查询预计能兑换多少代币
+// 输入参数	      ExactInputParams              	QuoteExactInputParams
+// 接收地址	      指定实际接收者	                 设置为 address(0)
+// 最低输出限制	  可以设置实际的最低输出数量        	设置为 0
+// 返回值	      实际兑换得到的输出数量	          设计上用于返回报价数量
+ // 报价，指定 tokenIn 的数量和 tokenOut 的最小值，返回 tokenOut 的实际数量
+// 给定输入代币数量，模拟兑换过程，计算大约能得到多少输出代币 amountOut。
     function quoteExactInput(
         QuoteExactInputParams calldata params
     ) external override returns (uint256 amountOut) {
