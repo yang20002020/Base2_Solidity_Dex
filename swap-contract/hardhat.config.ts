@@ -19,7 +19,7 @@ const config: HardhatUserConfig = {
     },
     sepolia: {
       url: "",
-      accounts: [""], // 替换为你的钱包私钥
+      accounts: ["0xecd01ca33084cec9d77d0352096649095074440915c2662f25d805456861f082"], // 替换为你的钱包私钥
     },
   },
   etherscan: {
