@@ -135,7 +135,15 @@ it("getPairs & getAllPools", async function () {
       BigInt(encodeSqrtRatioX96(200, 1).toString())
     );
 });
-  it("require token0 < token1", async function () {
+
+// 正确：
+// tokenA → token0
+// tokenB → token1
+
+// 测试：
+// tokenB → token0
+// tokenA → token1
+it("require token0 < token1", async function () {
     const { manager } = await loadFixture(deployFixture);
     const tokenA: `0x${string}` = "0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984";
     const tokenB: `0x${string}` = "0xEcd0D12E21805803f70de03B72B1C162dB0898d9";
@@ -151,6 +159,7 @@ it("getPairs & getAllPools", async function () {
           sqrtPriceX96: BigInt(encodeSqrtRatioX96(100, 1).toString()),
         },
       ])
-    ).to.be.rejected;
+    ).to.be.rejected;  //我期望这个 Promise 被拒绝，也就是合约调用失败
   });
+
 });
