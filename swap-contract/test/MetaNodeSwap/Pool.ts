@@ -4,6 +4,18 @@ import hre from "hardhat";
 import { TickMath, encodeSqrtRatioX96 } from "@uniswap/v3-sdk";
 
 describe("Pool", function () {
+  // deployFixture()：先把交易池搭起来
+  //  Factory
+  //   ↓
+  // 创建两个 Token
+  //   ↓
+  // 确定 token0 < token1
+  //   ↓
+  // 创建 Pool
+  //   ↓
+  // 初始化价格 = 10000
+  //   ↓
+  // 得到一个可以交易的 Pool
   async function deployFixture() {
     // 初始化一个池子，价格上限是 40000，下限是 1，初始化价格是 10000，费率是 0.3%
     const factory = await hre.viem.deployContract("Factory");
@@ -23,14 +35,23 @@ describe("Pool", function () {
       tickUpper,
       fee,
     ]);
+    // 从 Factory 合约中读取 PoolCreated 事件
     const createEvents = await factory.getEvents.PoolCreated();
+    //createEvents[0]  第一条创建池子的事件
+    // createEvents[0].args.pool，从这条事件里取出 pool 参数，也就是 Pool 合约地址
+    // || "0x"，如果 pool 没有值，就使用 "0x" 作为默认值。
     const poolAddress: `0x${string}` = createEvents[0].args.pool || "0x";
+    // 根据 Pool 合约的 ABI + poolAddress，获取这个已经部署好的 Pool 合约实例
+    // "Pool" as string，指定要使用的合约类型，也就是 Pool 合约
+    // poolAddress 指定这个 Pool 合约实际部署在哪个地址
+    // Pool 合约
+    // getContractAt() = 拿着“合约类型 + 合约地址”，把已经部署在链上的那个合约接进来操作。
     const pool = await hre.viem.getContractAt("Pool" as string, poolAddress);
 
     // 计算一个初始化的价格，按照 1 个 token0 换 10000 个 token1 来算，其实就是 10000
     const sqrtPriceX96 = encodeSqrtRatioX96(10000, 1);
     await pool.write.initialize([sqrtPriceX96]);
-
+    // deployFixture() 最后把前面创建好的这一整套测试环境，打包成一个对象返回出去
     return {
       token0,
       token1,
@@ -45,9 +66,39 @@ describe("Pool", function () {
   }
 
   it("pool info", async function () {
+   // 加载 deployFixture 创建好的测试环境
+   // 从返回对象中取出 Pool、两个 Token、Tick 范围、手续费和初始化价格
+   //  这里不要求个数和顺序一致。因为这不是按位置接收返回值，而是在对一个 对象进行解构。
+    //    你的 deployFixture() 返回的是：
+    // return {
+    //   token0,
+    //   token1,
+    //   factory,
+    //   pool,
+    //   publicClient,
+    //   tickLower,
+    //   tickUpper,
+    //   fee,
+    //   sqrtPriceX96
+    // };
+
+    // 而这里：
+    // const {
+    //   pool,
+    //   token0,
+    //   token1,
+    //   tickLower,
+    //   tickUpper,
+    //   fee,
+    //   sqrtPriceX96
+    // } = await loadFixture(deployFixture);
+    // 是根据 属性名 找值。
     const { pool, token0, token1, tickLower, tickUpper, fee, sqrtPriceX96 } =
       await loadFixture(deployFixture);
-
+    // as 是 TypeScript 的类型断言（type assertion）
+    ((await pool.read.token0()) as string)
+    // 意思是：
+    // 告诉 TypeScript：我认为 pool.read.token0() 返回的这个值是一个 string。
     expect(((await pool.read.token0()) as string).toLocaleLowerCase()).to.equal(
       token0.address
     );
