@@ -96,9 +96,49 @@ describe("Pool", function () {
     const { pool, token0, token1, tickLower, tickUpper, fee, sqrtPriceX96 } =
       await loadFixture(deployFixture);
     // as 是 TypeScript 的类型断言（type assertion）
-    ((await pool.read.token0()) as string)
+    // ((await pool.read.token0()) as string)
     // 意思是：
     // 告诉 TypeScript：我认为 pool.read.token0() 返回的这个值是一个 string。
+
+    //     await pool.read.token0()
+    // 调用 Pool 合约的 token0()，读取链上保存的 token0 地址。
+    // 然后：
+    // (await pool.read.token0()) as string
+    // 这里的：
+    // as string
+    // 就是告诉 TypeScript：
+    // “把这个值按照 string 类型来理解。”
+    // 注意：它不会真的把数据转换成字符串。
+    // 这点非常重要。
+
+    //     ((await pool.read.token0()) as string).toLocaleLowerCase()
+    // 就是：
+    // 读取 token0 地址
+    //       ↓
+    // 告诉 TypeScript：它是 string
+    //       ↓
+    // 转换成小写
+
+    //     as string 和真正的转换不一样
+    // 例如：
+    // const value = 123 as string;
+
+    // 这只是类型上告诉 TypeScript它是 string，实际上 value 还是数字 123。
+
+    // 真正的转换是：
+    // String(123)
+
+    // 结果才是真正的字符串 "123"。
+
+    //     所以你这段代码里的：
+    // as string
+
+    // 主要是为了帮助 TypeScript 理解类型，让后面的 .toLocaleLowerCase() 可以正常使用。
+
+    // 一句话记住：
+    // as 类型 = TypeScript 类型断言：“把这个值当成这个类型来看”。
+    //     这里的 await 可以简单理解成：
+    // 等待这次“读取区块链数据”的操作完成，拿到结果以后，再继续执行下面的代码。
     expect(((await pool.read.token0()) as string).toLocaleLowerCase()).to.equal(
       token0.address
     );
@@ -115,13 +155,24 @@ describe("Pool", function () {
     const { pool, token0, token1, sqrtPriceX96 } = await loadFixture(
       deployFixture
     );
+    // 部署一个名为 TestLP 的智能合约，并把部署后的合约实例保存到 testLP 变量中。
     const testLP = await hre.viem.deployContract("TestLP");
+    // 1000n：数字 1000，n 表示这是 JavaScript 的 BigInt 类型，用于表示大整数。
+    // 10n ** 18n：10 的 18 次方
+    //     为什么要乘以 10 的 18 次方？
+    // 因为以太坊 ERC-20 Token 通常采用 18 位小数精度。
 
+    // 例如：
+    // 人类看到的数量	合约内部存储的数量
+    // 1 Token	\(10^{18}\)
+    // 10 Token	\(10^{19}\)
     const initBalanceValue = 1000n * 10n ** 18n;
+    // 调用 token0 合约的 mint() 方法，给 testLP 合约铸造并分配 1000 个 token0。
     await token0.write.mint([testLP.address, initBalanceValue]);
     await token1.write.mint([testLP.address, initBalanceValue]);
 
-    // mint 20000000 份流动性
+    // 调用 TestLP 合约的 mint() 方法，让 testLP 向 pool 提供 20,000,000 份流动性
+    // mint 20000000 份流动性  mint 通常就是“铸造”
     await testLP.write.mint([
       testLP.address,
       20000000n,
@@ -130,6 +181,13 @@ describe("Pool", function () {
       token1.address,
     ]);
 
+    // Pool 里面的 token0 数量，是否等于 TestLP 原来拥有的 token0 数量减去现在 TestLP 剩余的 token0 数量
+    //  await token0.read.balanceOf([pool.address])
+    // 读取：
+    // Pool 现在有多少 token0。
+    // await token0.read.balanceOf([testLP.address])
+    // 读取：
+    // TestLP 现在还剩多少 token0。
     expect(await token0.read.balanceOf([pool.address])).to.equal(
       initBalanceValue - (await token0.read.balanceOf([testLP.address]))
     );
